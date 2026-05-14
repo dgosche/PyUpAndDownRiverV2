@@ -335,16 +335,25 @@ const DIFF_DESCS = {
 
 // ─── API helpers ──────────────────────────────────────────────────
 async function api(url, body) {
-  // Reset debounce so a failed request never permanently locks the UI
   try {
     const opts = { method: 'POST', headers: {'Content-Type':'application/json'} };
     if (body) opts.body = JSON.stringify(body);
     const res  = await fetch(url, opts);
+    if (!res.ok) {
+      // Server returned an error status — session likely lost, restart game
+      const text = await res.text();
+      console.error('Server error:', res.status, text);
+      if (confirm('Session expired or server error. Click OK to restart the game.')) {
+        window.location.reload();
+      }
+      return null;
+    }
     const data = await res.json();
     if (data.error) { alert(data.error); return null; }
     return data;
   } catch(e) {
-    alert('Network error — please try again.');
+    console.error('Network error:', e);
+    alert('Network error — please check your connection and try again.');
     return null;
   } finally {
     _submitting = false;
