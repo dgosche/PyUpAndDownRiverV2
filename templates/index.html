@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#14542f">
+<title>Up and Down the River</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; font-family: 'Segoe UI', Arial, sans-serif; background: #1a6b3c; color: #e8f5e9; }
+body { display: flex; flex-direction: column; min-height: 100dvh; }
+
+/* ── Header ──────────────────────────────────────────────── */
+#header {
+  background: #14542f; padding: 8px 12px;
+  display: flex; align-items: center; justify-content: space-between;
+  flex-shrink: 0; box-shadow: 0 2px 6px #0005;
+}
+#header h1 { font-size: 15px; color: #f5c842; font-weight: 700; }
+#header-right { display: flex; align-items: center; gap: 8px; }
+#round-info { font-size: 12px; color: #aed6b8; }
+.diff-badge {
+  font-size: 10px; font-weight: 700; padding: 2px 7px;
+  border-radius: 10px; text-transform: uppercase; letter-spacing: .5px;
+}
+.diff-easy   { background: #2e7d52; color: #b9f6ca; }
+.diff-medium { background: #e65100; color: #ffe0b2; }
+.diff-hard   { background: #b71c1c; color: #ffcdd2; }
+
+/* ── Scoreboard ──────────────────────────────────────────── */
+#scoreboard {
+  background: #0d3d22; padding: 6px 8px;
+  display: flex; gap: 4px; overflow-x: auto; flex-shrink: 0;
+}
+.score-card {
+  background: #155a34; border-radius: 8px;
+  padding: 5px 8px; min-width: 72px; flex-shrink: 0;
+  font-size: 11px; text-align: center;
+}
+.score-card .sc-name { font-weight: 700; color: #f5c842; font-size: 12px; }
+.score-card .sc-pts  { color: #e8f5e9; }
+.score-card .sc-bid  { color: #aed6b8; font-size: 10px; }
+.score-card.is-dealer .sc-name::after { content: " ◄"; color: #f5c842; }
+.score-card.is-turn { border: 2px solid #ffeb3b; }
+
+/* ── Main ────────────────────────────────────────────────── */
+#main { flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 8px; }
+
+/* ── Panels ──────────────────────────────────────────────── */
+.panel { background: #0d3d22; border-radius: 10px; padding: 10px 12px; }
+.panel-title {
+  font-size: 11px; font-weight: 700; color: #f5c842;
+  text-transform: uppercase; letter-spacing: .5px; margin-bottom: 6px;
+}
+
+/* ── AI opponents ────────────────────────────────────────── */
+#ai-area { display: flex; gap: 8px; overflow-x: auto; }
+.ai-player { background: #155a34; border-radius: 8px; padding: 6px 10px; flex-shrink: 0; min-width: 100px; }
+.ai-player .ai-name { font-size: 12px; font-weight: 700; color: #e8f5e9; }
+.ai-player .ai-info { font-size: 10px; color: #aed6b8; margin: 2px 0; }
+.ai-player.is-turn { border: 2px solid #ffeb3b; }
+.ai-cards { display: flex; gap: 2px; flex-wrap: wrap; margin-top: 4px; }
+.face-down {
+  width: 28px; height: 40px; background: #1e3a8a;
+  border-radius: 4px; border: 1px solid #3b5fc0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px; color: #3b5fc0;
+}
+
+/* ── Trick ───────────────────────────────────────────────── */
+#trick-area { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; min-height: 80px; align-items: center; }
+.trick-slot { display: flex; flex-direction: column; align-items: center; gap: 3px; }
+.trick-slot .trick-name { font-size: 10px; color: #aed6b8; }
+
+/* ── Message ─────────────────────────────────────────────── */
+#message {
+  background: #1e5c35; border-radius: 8px; padding: 8px 12px;
+  text-align: center; font-size: 13px; font-weight: 600; color: #ffeb3b;
+  min-height: 36px; display: flex; align-items: center; justify-content: center;
+}
+
+/* ── Playing cards ───────────────────────────────────────── */
+.card {
+  width: 52px; height: 74px; background: #fffef5; border-radius: 7px;
+  border: 1.5px solid #ccc; display: flex; flex-direction: column;
+  justify-content: space-between; padding: 3px 4px;
+  cursor: default; user-select: none; position: relative;
+  flex-shrink: 0; transition: transform .15s, box-shadow .15s;
+  box-shadow: 0 2px 4px #0003;
+}
+.card.clickable { cursor: pointer; }
+.card.clickable:active { transform: translateY(-6px); box-shadow: 0 6px 12px #0004; }
+.card.dimmed { background: #c8c8c8; border-color: #999; }
+.card .c-rank { font-size: 13px; font-weight: 700; line-height: 1; }
+.card .c-suit { font-size: 11px; line-height: 1; }
+.card .c-center { font-size: 22px; position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); }
+.card .c-bot { position: absolute; bottom: 3px; right: 4px; text-align: right; transform: rotate(180deg); }
+.card .c-bot .c-rank { font-size: 13px; }
+.card .c-bot .c-suit { font-size: 11px; }
+.red   { color: #cc2200; }
+.black { color: #111; }
+
+/* ── Hand ────────────────────────────────────────────────── */
+#hand-area {
+  display: flex; gap: 6px; overflow-x: auto;
+  padding: 4px 2px 8px; -webkit-overflow-scrolling: touch;
+}
+
+/* ── Bid panel ───────────────────────────────────────────── */
+#bid-panel { display: none; }
+#bid-info  { font-size: 12px; color: #aed6b8; margin-bottom: 8px; min-height: 18px; white-space: pre-line; }
+#bid-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+.bid-btn {
+  width: 46px; height: 46px; border-radius: 8px;
+  background: #2e7d52; color: #fff;
+  font-size: 16px; font-weight: 700; border: none; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: background .15s;
+}
+.bid-btn:active { background: #4caf50; }
+.bid-btn.forbidden { background: #444; color: #666; cursor: not-allowed; }
+
+/* ── Round end ───────────────────────────────────────────── */
+#round-end-panel { display: none; }
+.results-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; }
+.results-table th { color: #f5c842; font-weight: 700; padding: 4px 6px; text-align: left; border-bottom: 1px solid #2a7a4a; }
+.results-table td { padding: 4px 6px; }
+.results-table tr.made   td { color: #69f0ae; }
+.results-table tr.missed td { color: #ff8a80; }
+
+/* ── Buttons ─────────────────────────────────────────────── */
+.big-btn {
+  width: 100%; padding: 14px; border-radius: 10px;
+  background: #f5c842; color: #1a1a1a;
+  font-size: 16px; font-weight: 700; border: none; cursor: pointer;
+  margin-top: 12px; transition: background .15s;
+}
+.big-btn:active  { background: #ffe066; }
+.big-btn.secondary { background: #2e7d52; color: #fff; }
+
+/* ── Setup screen ────────────────────────────────────────── */
+#setup-panel {
+  display: flex; flex-direction: column;
+  align-items: center; padding: 20px 16px; gap: 16px;
+}
+#setup-panel h2 { color: #f5c842; font-size: 22px; text-align: center; }
+.setup-rules {
+  background: #0d3d22; border-radius: 10px; padding: 14px 16px;
+  font-size: 13px; line-height: 1.7; color: #aed6b8; width: 100%;
+}
+.setup-rules strong { color: #f5c842; }
+
+/* ── Option button groups ────────────────────────────────── */
+.option-label { font-weight: 700; color: #f5c842; text-align: center; margin-bottom: 8px; }
+.option-group { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+.opt-btn {
+  padding: 10px 16px; border-radius: 8px;
+  background: #155a34; color: #e8f5e9;
+  font-size: 14px; font-weight: 600; border: 2px solid #2a7a4a;
+  cursor: pointer; transition: all .15s;
+}
+.opt-btn.selected { border-color: #f5c842; color: #f5c842; background: #1e7040; }
+.opt-btn.diff-easy-sel.selected   { background: #1b5e20; border-color: #69f0ae; color: #69f0ae; }
+.opt-btn.diff-medium-sel.selected { background: #bf360c; border-color: #ffab40; color: #ffab40; }
+.opt-btn.diff-hard-sel.selected   { background: #7f0000; border-color: #ff5252; color: #ff5252; }
+
+/* Difficulty descriptions */
+.diff-desc {
+  width: 100%; background: #0d3d22; border-radius: 8px;
+  padding: 10px 14px; font-size: 12px; color: #aed6b8; line-height: 1.6;
+  min-height: 62px;
+}
+.diff-desc strong { color: #f5c842; }
+
+/* ── Round progress ──────────────────────────────────────── */
+#round-dots { display: flex; gap: 3px; flex-wrap: wrap; margin-top: 4px; }
+.rdot {
+  width: 22px; height: 22px; border-radius: 4px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px; font-weight: 700;
+  background: #0a2e18; color: #2d6b47;
+}
+.rdot.done    { background: #2e7d52; color: #f5c842; }
+.rdot.current { background: #f5c842; color: #0d3d22; }
+
+/* ── Log ─────────────────────────────────────────────────── */
+#log-area { font-size: 11px; color: #7aab8a; max-height: 100px; overflow-y: auto; line-height: 1.6; }
+
+/* ── Game over ───────────────────────────────────────────── */
+#gameover-panel { display: none; }
+.podium-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; font-size: 14px; }
+.podium-row.winner { font-size: 17px; font-weight: 700; color: #f5c842; }
+.medal { font-size: 22px; }
+.go-score { margin-left: auto; font-weight: 700; }
+.summary-scroll { overflow-x: auto; margin-top: 8px; }
+.summary-table { border-collapse: collapse; font-size: 11px; white-space: nowrap; }
+.summary-table th { color: #f5c842; padding: 3px 8px; text-align: right; border-bottom: 1px solid #2a7a4a; }
+.summary-table td { padding: 3px 8px; text-align: right; color: #aed6b8; }
+.summary-table .made-cell   { color: #69f0ae; }
+.summary-table .missed-cell { color: #ff8a80; }
+
+.hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<!-- ══ SETUP ══════════════════════════════════════════════════════ -->
+<div id="setup-panel">
+  <div style="font-size:36px">♠</div>
+  <h2>Up and Down the River</h2>
+
+  <div class="setup-rules">
+    <strong>19 rounds:</strong> 1 card → 10 cards → 1 card<br>
+    <strong>Trump:</strong> Always Spades ♠<br>
+    <strong>Bid</strong> how many tricks you'll win each round.<br>
+    <strong>Dealer</strong> cannot make total bids equal trick count.<br><br>
+    <strong>Scoring:</strong><br>
+    &nbsp; Exact bid 0 → 10 pts &nbsp;|&nbsp;
+    Exact bid &gt;0 → bid×10 &nbsp;|&nbsp;
+    Missed → 1 pt/trick
+  </div>
+
+  <!-- Players -->
+  <div style="width:100%">
+    <div class="option-label">How many players?</div>
+    <div class="option-group" id="player-btns">
+      <button class="opt-btn" data-n="2">2</button>
+      <button class="opt-btn selected" data-n="3">3</button>
+      <button class="opt-btn" data-n="4">4</button>
+      <button class="opt-btn" data-n="5">5</button>
+    </div>
+  </div>
+
+  <!-- Difficulty -->
+  <div style="width:100%">
+    <div class="option-label">AI Difficulty</div>
+    <div class="option-group" id="diff-btns">
+      <button class="opt-btn diff-easy-sel"   data-d="easy">Easy</button>
+      <button class="opt-btn diff-medium-sel selected" data-d="medium">Medium</button>
+      <button class="opt-btn diff-hard-sel"   data-d="hard">Hard</button>
+    </div>
+    <div class="diff-desc" id="diff-desc" style="margin-top:8px">
+      <strong>Medium:</strong> Tracks played cards and remaining trump.
+      Uses cheapest winner when needed, cheapest loser when not.
+      Bids using suit-strength awareness.
+    </div>
+  </div>
+
+  <button class="big-btn" id="start-btn">START GAME ♠</button>
+</div>
+
+<!-- ══ GAME SCREEN ════════════════════════════════════════════════ -->
+<div id="game-screen" class="hidden">
+  <div id="header">
+    <h1>♠ Up &amp; Down the River</h1>
+    <div id="header-right">
+      <span id="diff-badge" class="diff-badge"></span>
+      <div id="round-info">Round —/19</div>
+    </div>
+  </div>
+
+  <div id="scoreboard"></div>
+
+  <div id="main">
+    <div class="panel">
+      <div class="panel-title">Opponents</div>
+      <div id="ai-area"></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">Current Trick &nbsp;<span id="lead-suit-lbl" style="color:#aed6b8;font-weight:400"></span></div>
+      <div id="trick-area"><span style="color:#4a7a5a;font-style:italic">Waiting for first card…</span></div>
+    </div>
+
+    <div id="message">—</div>
+
+    <div class="panel">
+      <div class="panel-title">Your Hand &nbsp;<span id="your-info" style="color:#aed6b8;font-weight:400"></span></div>
+      <div id="hand-area"></div>
+    </div>
+
+    <div class="panel" id="bid-panel">
+      <div class="panel-title">Place Your Bid</div>
+      <div id="bid-info"></div>
+      <div id="bid-buttons"></div>
+    </div>
+
+    <div class="panel" id="round-end-panel">
+      <div class="panel-title" id="round-end-title">Round Complete</div>
+      <table class="results-table" id="round-results"></table>
+      <button class="big-btn" id="next-round-btn">Next Round →</button>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">Round Progress</div>
+      <div id="round-dots"></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">Game Log</div>
+      <div id="log-area"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ GAME OVER ══════════════════════════════════════════════════ -->
+<div id="gameover-panel">
+  <div style="background:#14542f;padding:10px 14px;">
+    <div style="color:#f5c842;font-size:18px;font-weight:700">🏆 Game Over</div>
+  </div>
+  <div style="padding:16px;">
+    <div id="podium"></div>
+    <div style="color:#f5c842;font-weight:700;margin-top:16px;margin-bottom:4px">Round-by-Round Summary</div>
+    <div class="summary-scroll"><table class="summary-table" id="summary-table"></table></div>
+    <button class="big-btn" id="play-again-btn" style="margin-top:20px">Play Again</button>
+  </div>
+</div>
+
+<script>
+// ─── State ────────────────────────────────────────────────────────
+let selectedPlayers = 3;
+let selectedDiff    = 'medium';
+let state           = null;
+
+const DIFF_DESCS = {
+  easy:   '<strong>Easy:</strong> AI plays randomly from legal cards. Bids without strategy. Good for learning the rules.',
+  medium: '<strong>Medium:</strong> Tracks played cards and remaining trump. Uses cheapest winner when needed, cheapest loser when not. Bids using suit-strength awareness.',
+  hard:   '<strong>Hard:</strong> Full card memory across all tricks. Infers opponent voids, plans conservatively when at bid, aggressively when behind. Precise probability bidding.'
+};
+
+// ─── Setup interactions ───────────────────────────────────────────
+document.querySelectorAll('#player-btns .opt-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#player-btns .opt-btn').forEach(b => b.classList.remove('selected'));
+    btn.classList.add('selected');
+    selectedPlayers = parseInt(btn.dataset.n);
+  });
+});
+
+document.querySelectorAll('#diff-btns .opt-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#diff-btns .opt-btn').forEach(b => b.classList.remove('selected'));
+    btn.classList.add('selected');
+    selectedDiff = btn.dataset.d;
+    document.getElementById('diff-desc').innerHTML = DIFF_DESCS[selectedDiff];
+  });
+});
+
+document.getElementById('start-btn').addEventListener('click', async () => {
+  const res = await fetch('/api/start', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({num_players: selectedPlayers, difficulty: selectedDiff})
+  });
+  state = await res.json();
+  showGame();
+  render(state);
+});
+
+document.getElementById('next-round-btn').addEventListener('click', async () => {
+  const res = await fetch('/api/next_round', {method:'POST'});
+  state = await res.json();
+  render(state);
+});
+
+document.getElementById('play-again-btn').addEventListener('click', () => {
+  document.getElementById('gameover-panel').style.display = 'none';
+  document.getElementById('setup-panel').style.display    = 'flex';
+});
+
+// ─── Show game ────────────────────────────────────────────────────
+function showGame() {
+  document.getElementById('setup-panel').style.display    = 'none';
+  document.getElementById('gameover-panel').style.display = 'none';
+  const gs = document.getElementById('game-screen');
+  gs.classList.remove('hidden');
+  gs.style.display = 'flex';
+  gs.style.flexDirection = 'column';
+  gs.style.height = '100dvh';
+}
+
+// ─── Card HTML ────────────────────────────────────────────────────
+function cardHTML(card, opts={}) {
+  const {clickable=false, dimmed=false} = opts;
+  const isRed = card.suit==='♥' || card.suit==='♦';
+  const col   = isRed ? 'red' : 'black';
+  const cls   = ['card', col, clickable?'clickable':'', dimmed?'dimmed':''].filter(Boolean).join(' ');
+  return `<div class="${cls}" data-rank="${card.rank}" data-suit="${card.suit}">
+    <div><div class="c-rank">${card.rank}</div><div class="c-suit">${card.suit}</div></div>
+    <div class="c-center">${card.suit}</div>
+    <div class="c-bot"><div class="c-rank">${card.rank}</div><div class="c-suit">${card.suit}</div></div>
+  </div>`;
+}
+
+function faceDownHTML() {
+  return `<div class="face-down">?</div>`;
+}
+
+// ─── Main render ──────────────────────────────────────────────────
+function render(s) {
+  if (!s) return;
+  if (s.phase === 'game_over') { renderGameOver(s); return; }
+
+  // Difficulty badge
+  const badge = document.getElementById('diff-badge');
+  badge.textContent = s.difficulty;
+  badge.className   = `diff-badge diff-${s.difficulty}`;
+
+  // Header
+  document.getElementById('round-info').textContent =
+    `Round ${s.round_num}/19 • ${s.num_cards} card${s.num_cards!==1?'s':''}`;
+
+  // Scoreboard
+  document.getElementById('scoreboard').innerHTML = s.names.map((name,i) => {
+    const bid  = s.bids[i] !== null ? s.bids[i] : '—';
+    const isD  = i === s.dealer_idx;
+    const isT  = s.phase==='playing' && s.current_player===i;
+    return `<div class="score-card ${isD?'is-dealer':''} ${isT?'is-turn':''}">
+      <div class="sc-name">${name}</div>
+      <div class="sc-pts">${s.scores[i]} pts</div>
+      <div class="sc-bid">Bid:${bid} Won:${s.tricks_won[i]}</div>
+    </div>`;
+  }).join('');
+
+  // AI opponents
+  const aiArea = document.getElementById('ai-area');
+  aiArea.innerHTML = '';
+  for (let i=1; i<s.num_players; i++) {
+    const bid  = s.bids[i] !== null ? s.bids[i] : '?';
+    const isT  = s.phase==='playing' && s.current_player===i;
+    const isD  = i === s.dealer_idx;
+    const cards= Array(s.ai_card_counts[i-1]).fill(0).map(()=>faceDownHTML()).join('');
+    aiArea.innerHTML += `<div class="ai-player ${isT?'is-turn':''}">
+      <div class="ai-name">${s.names[i]}${isD?' ◄':''}</div>
+      <div class="ai-info">Bid:${bid} &nbsp; Won:${s.tricks_won[i]}</div>
+      <div class="ai-cards">${cards}</div>
+    </div>`;
+  }
+
+  // Trick
+  const trickArea = document.getElementById('trick-area');
+  trickArea.innerHTML = s.trick.length===0
+    ? '<span style="color:#4a7a5a;font-style:italic">Waiting for first card…</span>'
+    : s.trick.map(t=>`<div class="trick-slot">
+        <div class="trick-name">${s.names[t.player]}</div>
+        ${cardHTML(t.card)}
+      </div>`).join('');
+  document.getElementById('lead-suit-lbl').textContent = s.lead_suit ? `Lead: ${s.lead_suit}` : '';
+
+  // Message
+  document.getElementById('message').textContent = s.message || '—';
+
+  // Your info
+  const bid0 = s.bids[0] !== null ? s.bids[0] : '—';
+  const dlr  = s.dealer_idx===0 ? ' ◄ Dealer' : '';
+  document.getElementById('your-info').textContent = `Bid:${bid0}  Won:${s.tricks_won[0]}${dlr}`;
+
+  // Your hand
+  const handArea = document.getElementById('hand-area');
+  handArea.innerHTML = '';
+  const isYourTurn = s.phase==='playing' && s.current_player===0;
+  let validSuits = null;
+  if (isYourTurn && s.lead_suit) {
+    const canFollow = s.hand.some(c=>c.suit===s.lead_suit);
+    validSuits = canFollow ? new Set([s.lead_suit]) : null;
+  }
+  s.hand.forEach(card => {
+    const clickable = isYourTurn && (!validSuits || validSuits.has(card.suit));
+    const dimmed    = isYourTurn && !!validSuits && !validSuits.has(card.suit);
+    const el = document.createElement('div');
+    el.innerHTML = cardHTML(card, {clickable, dimmed});
+    const cEl = el.firstChild;
+    if (clickable) cEl.addEventListener('click', ()=>playCard(card));
+    handArea.appendChild(cEl);
+  });
+
+  // Bid panel
+  const bidPanel = document.getElementById('bid-panel');
+  const isMyBid  = s.phase==='bidding' && s.waiting_for==='human';
+  bidPanel.style.display = isMyBid ? 'block' : 'none';
+  if (isMyBid) renderBidPanel(s);
+
+  // Round end panel
+  const rep = document.getElementById('round-end-panel');
+  rep.style.display = s.phase==='round_end' ? 'block' : 'none';
+  if (s.phase==='round_end') renderRoundEnd(s);
+
+  // Round dots
+  const ROUND_COUNTS = [1,2,3,4,5,6,7,8,9,10,9,8,7,6,5,4,3,2,1];
+  document.getElementById('round-dots').innerHTML = ROUND_COUNTS.map((n,i)=>{
+    const cls = i<s.round_idx?'rdot done':i===s.round_idx?'rdot current':'rdot';
+    return `<div class="${cls}">${n}</div>`;
+  }).join('');
+
+  // Log
+  document.getElementById('log-area').innerHTML = (s.log||[]).map(l=>`<div>${l}</div>`).join('');
+}
+
+// ─── Bid panel ────────────────────────────────────────────────────
+function renderBidPanel(s) {
+  const others = s.names.map((n,i)=>i>0&&s.bids[i]!==null?`${n}=${s.bids[i]}`:null).filter(Boolean).join('  ');
+  let info = others ? `Bids so far:  ${others}` : `Choose your bid (0 – ${s.num_cards})`;
+  if (s.forbidden_bid !== null)
+    info += `\nCannot bid ${s.forbidden_bid} as dealer`;
+  document.getElementById('bid-info').textContent = info;
+  const btns = document.getElementById('bid-buttons');
+  btns.innerHTML = '';
+  for (let b=0; b<=s.num_cards; b++) {
+    const isForbidden = (b===s.forbidden_bid);
+    const btn = document.createElement('button');
+    btn.className   = 'bid-btn' + (isForbidden?' forbidden':'');
+    btn.textContent = b;
+    if (!isForbidden) btn.addEventListener('click', ()=>submitBid(b));
+    btns.appendChild(btn);
+  }
+}
+
+// ─── Round end ────────────────────────────────────────────────────
+function renderRoundEnd(s) {
+  const last = s.round_log[s.round_log.length-1];
+  if (!last) return;
+  document.getElementById('round-end-title').textContent = `Round ${last.round} Results`;
+  document.getElementById('round-results').innerHTML =
+    `<tr><th>Player</th><th>Bid</th><th>Got</th><th>Pts</th><th>Total</th></tr>` +
+    s.names.map((name,i)=>{
+      const made = last.bids[i]===last.tricks_won[i];
+      return `<tr class="${made?'made':'missed'}">
+        <td>${name}</td><td>${last.bids[i]}</td><td>${last.tricks_won[i]}</td>
+        <td>${made?'✓':'✗'} ${last.pts[i]>0?'+':''}${last.pts[i]}</td>
+        <td>${s.scores[i]}</td></tr>`;
+    }).join('');
+  const ROUND_COUNTS = [1,2,3,4,5,6,7,8,9,10,9,8,7,6,5,4,3,2,1];
+  const nc = ROUND_COUNTS[s.round_idx] || 1;
+  document.getElementById('next-round-btn').textContent =
+    s.round_idx>=19 ? 'View Final Results' : `Next Round (${nc} card${nc!==1?'s':''}) →`;
+}
+
+// ─── Game over ────────────────────────────────────────────────────
+function renderGameOver(s) {
+  document.getElementById('game-screen').style.display    = 'none';
+  document.getElementById('setup-panel').style.display    = 'none';
+  document.getElementById('gameover-panel').style.display = 'block';
+
+  const medals = ['🥇','🥈','🥉','🏅','🏅'];
+  const ranked = [...s.names.keys()].sort((a,b)=>s.scores[b]-s.scores[a]);
+  document.getElementById('podium').innerHTML = ranked.map((p,rank)=>
+    `<div class="podium-row ${rank===0?'winner':''}">
+      <span class="medal">${medals[rank]}</span>
+      <span>${s.names[p]}</span>
+      <span class="go-score">${s.scores[p]} pts</span>
+    </div>`).join('');
+
+  const tbl = document.getElementById('summary-table');
+  tbl.innerHTML =
+    `<tr>${['Rnd','Cards',...s.names].map(h=>`<th>${h}</th>`).join('')}</tr>` +
+    s.round_log.map(row=>
+      `<tr><td>${row.round}</td><td>${row.num_cards}</td>` +
+      s.names.map((_,i)=>{
+        const made = row.bids[i]===row.tricks_won[i];
+        return `<td class="${made?'made-cell':'missed-cell'}">b${row.bids[i]}/g${row.tricks_won[i]}=${row.pts[i]>0?'+':''}${row.pts[i]}</td>`;
+      }).join('') + '</tr>').join('');
+}
+
+// ─── Actions ──────────────────────────────────────────────────────
+async function submitBid(bid) {
+  document.querySelectorAll('.bid-btn').forEach(b=>b.disabled=true);
+  const res  = await fetch('/api/bid',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({bid})});
+  const data = await res.json();
+  if (data.error){alert(data.error);return;}
+  state=data; render(state);
+}
+
+async function playCard(card) {
+  const res  = await fetch('/api/play',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({rank:card.rank,suit:card.suit})});
+  const data = await res.json();
+  if (data.error){alert(data.error);return;}
+  state=data; render(state);
+}
+</script>
+</body>
+</html>
