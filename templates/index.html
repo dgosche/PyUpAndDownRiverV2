@@ -228,10 +228,10 @@ body { display: flex; flex-direction: column; min-height: 100dvh; }
   <div style="width:100%">
     <div class="option-label">How many players?</div>
     <div class="option-group" id="player-btns">
-      <button class="opt-btn" data-n="2">2</button>
-      <button class="opt-btn selected" data-n="3">3</button>
-      <button class="opt-btn" data-n="4">4</button>
-      <button class="opt-btn" data-n="5">5</button>
+      <button class="opt-btn" data-n="2" onclick="selectPlayers(2)">2</button>
+      <button class="opt-btn selected" data-n="3" onclick="selectPlayers(3)">3</button>
+      <button class="opt-btn" data-n="4" onclick="selectPlayers(4)">4</button>
+      <button class="opt-btn" data-n="5" onclick="selectPlayers(5)">5</button>
     </div>
   </div>
 
@@ -239,9 +239,9 @@ body { display: flex; flex-direction: column; min-height: 100dvh; }
   <div style="width:100%">
     <div class="option-label">AI Difficulty</div>
     <div class="option-group" id="diff-btns">
-      <button class="opt-btn diff-easy-sel"   data-d="easy">Easy</button>
-      <button class="opt-btn diff-medium-sel selected" data-d="medium">Medium</button>
-      <button class="opt-btn diff-hard-sel"   data-d="hard">Hard</button>
+      <button class="opt-btn diff-easy-sel"   data-d="easy"   onclick="selectDiff('easy')">Easy</button>
+      <button class="opt-btn diff-medium-sel selected" data-d="medium" onclick="selectDiff('medium')">Medium</button>
+      <button class="opt-btn diff-hard-sel"   data-d="hard"   onclick="selectDiff('hard')">Hard</button>
     </div>
     <div class="diff-desc" id="diff-desc" style="margin-top:8px">
       <strong>Medium:</strong> Tracks played cards and remaining trump.
@@ -250,7 +250,7 @@ body { display: flex; flex-direction: column; min-height: 100dvh; }
     </div>
   </div>
 
-  <button class="big-btn" id="start-btn">START GAME ♠</button>
+  <button class="big-btn" id="start-btn" onclick="startGame()">START GAME ♠</button>
 </div>
 
 <!-- ══ GAME SCREEN ════════════════════════════════════════════════ -->
@@ -292,7 +292,7 @@ body { display: flex; flex-direction: column; min-height: 100dvh; }
     <div class="panel" id="round-end-panel">
       <div class="panel-title" id="round-end-title">Round Complete</div>
       <table class="results-table" id="round-results"></table>
-      <button class="big-btn" id="next-round-btn">Next Round →</button>
+      <button class="big-btn" id="next-round-btn" onclick="nextRound()">Next Round →</button>
     </div>
 
     <div class="panel">
@@ -316,7 +316,7 @@ body { display: flex; flex-direction: column; min-height: 100dvh; }
     <div id="podium"></div>
     <div style="color:#f5c842;font-weight:700;margin-top:16px;margin-bottom:4px">Round-by-Round Summary</div>
     <div class="summary-scroll"><table class="summary-table" id="summary-table"></table></div>
-    <button class="big-btn" id="play-again-btn" style="margin-top:20px">Play Again</button>
+    <button class="big-btn" id="play-again-btn" onclick="playAgain()" style="margin-top:20px">Play Again</button>
   </div>
 </div>
 
@@ -325,6 +325,7 @@ body { display: flex; flex-direction: column; min-height: 100dvh; }
 let selectedPlayers = 3;
 let selectedDiff    = 'medium';
 let state           = null;
+let _submitting     = false;  // simple debounce - resets on every render
 
 const DIFF_DESCS = {
   easy:   '<strong>Easy:</strong> AI plays randomly from legal cards. Bids without strategy. Good for learning the rules.',
@@ -332,112 +333,101 @@ const DIFF_DESCS = {
   hard:   '<strong>Hard:</strong> Full card memory across all tricks. Infers opponent voids, plans conservatively when at bid, aggressively when behind. Precise probability bidding.'
 };
 
-// ─── Setup interactions ───────────────────────────────────────────
-// ─── Touch-safe tap helper ────────────────────────────────────────
-// Handles both touch and click, prevents 300ms delay and double-fire.
-function onTap(el, handler) {
-  let moved = false;
-  el.addEventListener('touchstart', () => { moved = false; }, {passive: true});
-  el.addEventListener('touchmove',  () => { moved = true;  }, {passive: true});
-  el.addEventListener('touchend', e => {
-    if (moved) return;
-    e.preventDefault();   // blocks the ghost click that follows
-    handler(e);
-  });
-  el.addEventListener('click', e => {
-    // Only fires on real mouse clicks (touchend already handled above)
-    if (e.sourceCapabilities && e.sourceCapabilities.firesTouchEvents) return;
-    handler(e);
-  });
-}
-
-// ─── In-flight guard — prevents double submissions ────────────────
-let _busy = false;
-async function safeFetch(url, opts) {
-  if (_busy) return null;
-  _busy = true;
+// ─── API helpers ──────────────────────────────────────────────────
+async function api(url, body) {
+  // Reset debounce so a failed request never permanently locks the UI
   try {
-    const res = await fetch(url, opts);
-    return await res.json();
+    const opts = { method: 'POST', headers: {'Content-Type':'application/json'} };
+    if (body) opts.body = JSON.stringify(body);
+    const res  = await fetch(url, opts);
+    const data = await res.json();
+    if (data.error) { alert(data.error); return null; }
+    return data;
+  } catch(e) {
+    alert('Network error — please try again.');
+    return null;
   } finally {
-    _busy = false;
+    _submitting = false;
   }
 }
 
-// ─── Event delegation on stable parents ──────────────────────────
-// Hand cards
-onTap(document.getElementById('hand-area'), e => {
-  const card = e.target.closest('.card.clickable');
-  if (!card) return;
-  playCard({rank: card.dataset.rank, suit: card.dataset.suit});
-});
+function guard() {
+  // Returns true if we should proceed, false if already in-flight
+  if (_submitting) return false;
+  _submitting = true;
+  return true;
+}
 
-// Bid buttons
-onTap(document.getElementById('bid-buttons'), e => {
-  const btn = e.target.closest('.bid-btn:not(.forbidden)');
-  if (!btn) return;
-  submitBid(parseInt(btn.dataset.bid));
-});
+// ─── Setup screen actions ─────────────────────────────────────────
+function selectPlayers(n) {
+  selectedPlayers = n;
+  document.querySelectorAll('#player-btns .opt-btn').forEach(b => {
+    b.classList.toggle('selected', parseInt(b.dataset.n) === n);
+  });
+}
 
-// Next round button
-onTap(document.getElementById('next-round-btn'), async () => {
-  const data = await safeFetch('/api/next_round', {method:'POST'});
+function selectDiff(d) {
+  selectedDiff = d;
+  document.querySelectorAll('#diff-btns .opt-btn').forEach(b => {
+    b.classList.toggle('selected', b.dataset.d === d);
+  });
+  document.getElementById('diff-desc').innerHTML = DIFF_DESCS[d];
+}
+
+async function startGame() {
+  if (!guard()) return;
+  const data = await api('/api/start', {num_players: selectedPlayers, difficulty: selectedDiff});
+  if (data) { state = data; showGame(); render(state); }
+}
+
+// ─── Game actions ─────────────────────────────────────────────────
+async function submitBid(bid) {
+  if (!guard()) return;
+  // Visually disable all bid buttons immediately
+  document.querySelectorAll('.bid-btn').forEach(b => b.setAttribute('disabled','true'));
+  const data = await api('/api/bid', {bid});
   if (data) { state = data; render(state); }
-});
+}
 
-// Play again button
-onTap(document.getElementById('play-again-btn'), () => {
+async function playCard(rank, suit) {
+  if (!guard()) return;
+  const data = await api('/api/play', {rank, suit});
+  if (data) { state = data; render(state); }
+}
+
+async function nextRound() {
+  if (!guard()) return;
+  const data = await api('/api/next_round');
+  if (data) { state = data; render(state); }
+}
+
+function playAgain() {
+  _submitting = false;
   document.getElementById('gameover-panel').style.display = 'none';
   document.getElementById('setup-panel').style.display    = 'flex';
-});
+}
 
-// Start button
-onTap(document.getElementById('start-btn'), async () => {
-  const data = await safeFetch('/api/start', {
-    method: 'POST',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({num_players: selectedPlayers, difficulty: selectedDiff})
-  });
-  if (data) { state = data; showGame(); render(state); }
-});
-
-// Player count buttons
-document.getElementById('player-btns').addEventListener('click', e => {
-  const btn = e.target.closest('.opt-btn');
-  if (!btn) return;
-  document.querySelectorAll('#player-btns .opt-btn').forEach(b => b.classList.remove('selected'));
-  btn.classList.add('selected');
-  selectedPlayers = parseInt(btn.dataset.n);
-});
-
-// Difficulty buttons
-document.getElementById('diff-btns').addEventListener('click', e => {
-  const btn = e.target.closest('.opt-btn');
-  if (!btn) return;
-  document.querySelectorAll('#diff-btns .opt-btn').forEach(b => b.classList.remove('selected'));
-  btn.classList.add('selected');
-  selectedDiff = btn.dataset.d;
-  document.getElementById('diff-desc').innerHTML = DIFF_DESCS[selectedDiff];
-});
-
-// ─── Show game ────────────────────────────────────────────────────
+// ─── Show game screen ─────────────────────────────────────────────
 function showGame() {
   document.getElementById('setup-panel').style.display    = 'none';
   document.getElementById('gameover-panel').style.display = 'none';
   const gs = document.getElementById('game-screen');
   gs.classList.remove('hidden');
-  gs.style.display = 'flex';
+  gs.style.display       = 'flex';
   gs.style.flexDirection = 'column';
-  gs.style.height = '100dvh';
+  gs.style.height        = '100dvh';
 }
 
 // ─── Card HTML ────────────────────────────────────────────────────
-function cardHTML(card, opts={}) {
-  const {clickable=false, dimmed=false} = opts;
+function cardHTML(card, clickable, dimmed) {
   const isRed = card.suit==='♥' || card.suit==='♦';
   const col   = isRed ? 'red' : 'black';
   const cls   = ['card', col, clickable?'clickable':'', dimmed?'dimmed':''].filter(Boolean).join(' ');
-  return `<div class="${cls}" data-rank="${card.rank}" data-suit="${card.suit}">
+  // Use onclick attribute — works on every browser, every device, no listener timing issues
+  const onclick = clickable
+    ? `onclick="playCard('${card.rank}','${card.suit}')" `
+    : '';
+  return `<div class="${cls}" ${onclick}>
     <div><div class="c-rank">${card.rank}</div><div class="c-suit">${card.suit}</div></div>
     <div class="c-center">${card.suit}</div>
     <div class="c-bot"><div class="c-rank">${card.rank}</div><div class="c-suit">${card.suit}</div></div>
@@ -450,6 +440,9 @@ function faceDownHTML() {
 
 // ─── Main render ──────────────────────────────────────────────────
 function render(s) {
+  // Reset debounce on every render so a fresh state always accepts input
+  _submitting = false;
+
   if (!s) return;
   if (s.phase === 'game_over') { renderGameOver(s); return; }
 
@@ -464,9 +457,9 @@ function render(s) {
 
   // Scoreboard
   document.getElementById('scoreboard').innerHTML = s.names.map((name,i) => {
-    const bid  = s.bids[i] !== null ? s.bids[i] : '—';
-    const isD  = i === s.dealer_idx;
-    const isT  = s.phase==='playing' && s.current_player===i;
+    const bid = s.bids[i] !== null ? s.bids[i] : '—';
+    const isD = i === s.dealer_idx;
+    const isT = s.phase==='playing' && s.current_player===i;
     return `<div class="score-card ${isD?'is-dealer':''} ${isT?'is-turn':''}">
       <div class="sc-name">${name}</div>
       <div class="sc-pts">${s.scores[i]} pts</div>
@@ -489,40 +482,41 @@ function render(s) {
     </div>`;
   }
 
-  // Trick
+  // Current trick
   const trickArea = document.getElementById('trick-area');
   trickArea.innerHTML = s.trick.length===0
     ? '<span style="color:#4a7a5a;font-style:italic">Waiting for first card…</span>'
     : s.trick.map(t=>`<div class="trick-slot">
         <div class="trick-name">${s.names[t.player]}</div>
-        ${cardHTML(t.card)}
+        ${cardHTML(t.card, false, false)}
       </div>`).join('');
-  document.getElementById('lead-suit-lbl').textContent = s.lead_suit ? `Lead: ${s.lead_suit}` : '';
+  document.getElementById('lead-suit-lbl').textContent =
+    s.lead_suit ? `Lead: ${s.lead_suit}` : '';
 
   // Message
   document.getElementById('message').textContent = s.message || '—';
 
-  // Your info
+  // Your hand info
   const bid0 = s.bids[0] !== null ? s.bids[0] : '—';
   const dlr  = s.dealer_idx===0 ? ' ◄ Dealer' : '';
-  document.getElementById('your-info').textContent = `Bid:${bid0}  Won:${s.tricks_won[0]}${dlr}`;
+  document.getElementById('your-info').textContent =
+    `Bid:${bid0}  Won:${s.tricks_won[0]}${dlr}`;
 
-  // Your hand — uses delegation on #hand-area, just render HTML
-  const handArea = document.getElementById('hand-area');
-  handArea.innerHTML = '';
-  const isYourTurn = s.phase==='playing' && s.current_player===0;
-  let validSuits = null;
+  // Your hand cards
+  const handArea    = document.getElementById('hand-area');
+  const isYourTurn  = s.phase==='playing' && s.current_player===0;
+  let validSuits    = null;
   if (isYourTurn && s.lead_suit) {
-    const canFollow = s.hand.some(c=>c.suit===s.lead_suit);
+    const canFollow = s.hand.some(c => c.suit===s.lead_suit);
     validSuits = canFollow ? new Set([s.lead_suit]) : null;
   }
-  s.hand.forEach(card => {
+  handArea.innerHTML = s.hand.map(card => {
     const clickable = isYourTurn && (!validSuits || validSuits.has(card.suit));
     const dimmed    = isYourTurn && !!validSuits && !validSuits.has(card.suit);
-    handArea.insertAdjacentHTML('beforeend', cardHTML(card, {clickable, dimmed}));
-  });
+    return cardHTML(card, clickable, dimmed);
+  }).join('');
 
-  // Bid panel — uses delegation on #bid-buttons, just render HTML
+  // Bid panel
   const bidPanel = document.getElementById('bid-panel');
   const isMyBid  = s.phase==='bidding' && s.waiting_for==='human';
   bidPanel.style.display = isMyBid ? 'block' : 'none';
@@ -533,33 +527,41 @@ function render(s) {
   rep.style.display = s.phase==='round_end' ? 'block' : 'none';
   if (s.phase==='round_end') renderRoundEnd(s);
 
-  // Round dots
+  // Round progress dots
   const ROUND_COUNTS = [1,2,3,4,5,6,7,8,9,10,9,8,7,6,5,4,3,2,1];
-  document.getElementById('round-dots').innerHTML = ROUND_COUNTS.map((n,i)=>{
-    const cls = i<s.round_idx?'rdot done':i===s.round_idx?'rdot current':'rdot';
+  document.getElementById('round-dots').innerHTML = ROUND_COUNTS.map((n,i) => {
+    const cls = i<s.round_idx ? 'rdot done' : i===s.round_idx ? 'rdot current' : 'rdot';
     return `<div class="${cls}">${n}</div>`;
   }).join('');
 
   // Log
-  document.getElementById('log-area').innerHTML = (s.log||[]).map(l=>`<div>${l}</div>`).join('');
+  document.getElementById('log-area').innerHTML =
+    (s.log||[]).map(l=>`<div>${l}</div>`).join('');
 }
 
 // ─── Bid panel ────────────────────────────────────────────────────
 function renderBidPanel(s) {
-  const others = s.names.map((n,i)=>i>0&&s.bids[i]!==null?`${n}=${s.bids[i]}`:null).filter(Boolean).join('  ');
-  let info = others ? `Bids so far:  ${others}` : `Choose your bid (0 – ${s.num_cards})`;
+  const others = s.names
+    .map((n,i) => i>0 && s.bids[i]!==null ? `${n}=${s.bids[i]}` : null)
+    .filter(Boolean).join('  ');
+  let info = others
+    ? `Bids so far:  ${others}`
+    : `Choose your bid (0 – ${s.num_cards})`;
   if (s.forbidden_bid !== null)
     info += `\nCannot bid ${s.forbidden_bid} as dealer`;
   document.getElementById('bid-info').textContent = info;
-  const btns = document.getElementById('bid-buttons');
-  btns.innerHTML = '';
+
+  let html = '';
   for (let b=0; b<=s.num_cards; b++) {
-    const isForbidden = (b===s.forbidden_bid);
-    // Store bid value in data-bid for delegation to read
-    btns.insertAdjacentHTML('beforeend',
-      `<button class="bid-btn${isForbidden?' forbidden':''}" data-bid="${b}"
-        ${isForbidden?'disabled':''}>${b}</button>`);
+    const isForbidden = (b === s.forbidden_bid);
+    if (isForbidden) {
+      html += `<button class="bid-btn forbidden" disabled>${b}</button>`;
+    } else {
+      // onclick inline — guaranteed to fire on every browser and device
+      html += `<button class="bid-btn" onclick="submitBid(${b})">${b}</button>`;
+    }
   }
+  document.getElementById('bid-buttons').innerHTML = html;
 }
 
 // ─── Round end ────────────────────────────────────────────────────
@@ -569,8 +571,8 @@ function renderRoundEnd(s) {
   document.getElementById('round-end-title').textContent = `Round ${last.round} Results`;
   document.getElementById('round-results').innerHTML =
     `<tr><th>Player</th><th>Bid</th><th>Got</th><th>Pts</th><th>Total</th></tr>` +
-    s.names.map((name,i)=>{
-      const made = last.bids[i]===last.tricks_won[i];
+    s.names.map((name,i) => {
+      const made = last.bids[i] === last.tricks_won[i];
       return `<tr class="${made?'made':'missed'}">
         <td>${name}</td><td>${last.bids[i]}</td><td>${last.tricks_won[i]}</td>
         <td>${made?'✓':'✗'} ${last.pts[i]>0?'+':''}${last.pts[i]}</td>
@@ -579,7 +581,9 @@ function renderRoundEnd(s) {
   const ROUND_COUNTS = [1,2,3,4,5,6,7,8,9,10,9,8,7,6,5,4,3,2,1];
   const nc = ROUND_COUNTS[s.round_idx] || 1;
   document.getElementById('next-round-btn').textContent =
-    s.round_idx>=19 ? 'View Final Results' : `Next Round (${nc} card${nc!==1?'s':''}) →`;
+    s.round_idx >= 19
+      ? 'View Final Results'
+      : `Next Round (${nc} card${nc!==1?'s':''}) →`;
 }
 
 // ─── Game over ────────────────────────────────────────────────────
@@ -589,8 +593,8 @@ function renderGameOver(s) {
   document.getElementById('gameover-panel').style.display = 'block';
 
   const medals = ['🥇','🥈','🥉','🏅','🏅'];
-  const ranked = [...s.names.keys()].sort((a,b)=>s.scores[b]-s.scores[a]);
-  document.getElementById('podium').innerHTML = ranked.map((p,rank)=>
+  const ranked = [...s.names.keys()].sort((a,b) => s.scores[b]-s.scores[a]);
+  document.getElementById('podium').innerHTML = ranked.map((p,rank) =>
     `<div class="podium-row ${rank===0?'winner':''}">
       <span class="medal">${medals[rank]}</span>
       <span>${s.names[p]}</span>
@@ -600,34 +604,15 @@ function renderGameOver(s) {
   const tbl = document.getElementById('summary-table');
   tbl.innerHTML =
     `<tr>${['Rnd','Cards',...s.names].map(h=>`<th>${h}</th>`).join('')}</tr>` +
-    s.round_log.map(row=>
+    s.round_log.map(row =>
       `<tr><td>${row.round}</td><td>${row.num_cards}</td>` +
-      s.names.map((_,i)=>{
-        const made = row.bids[i]===row.tricks_won[i];
-        return `<td class="${made?'made-cell':'missed-cell'}">b${row.bids[i]}/g${row.tricks_won[i]}=${row.pts[i]>0?'+':''}${row.pts[i]}</td>`;
-      }).join('') + '</tr>').join('');
-}
-
-// ─── Actions ──────────────────────────────────────────────────────
-async function submitBid(bid) {
-  document.querySelectorAll('.bid-btn').forEach(b=>b.disabled=true);
-  const data = await safeFetch('/api/bid', {
-    method: 'POST',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({bid})
-  });
-  if (data && !data.error) { state=data; render(state); }
-  else if (data && data.error) alert(data.error);
-}
-
-async function playCard(card) {
-  const data = await safeFetch('/api/play', {
-    method: 'POST',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({rank: card.rank, suit: card.suit})
-  });
-  if (data && !data.error) { state=data; render(state); }
-  else if (data && data.error) alert(data.error);
+      s.names.map((_,i) => {
+        const made = row.bids[i] === row.tricks_won[i];
+        return `<td class="${made?'made-cell':'missed-cell'}">` +
+               `b${row.bids[i]}/g${row.tricks_won[i]}=` +
+               `${row.pts[i]>0?'+':''}${row.pts[i]}</td>`;
+      }).join('') + '</tr>'
+    ).join('');
 }
 </script>
 </body>
