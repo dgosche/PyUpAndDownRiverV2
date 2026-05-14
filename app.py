@@ -13,10 +13,19 @@ Hard:   Full card memory across tricks, infers opponent voids,
 
 import random
 from flask import Flask, session, jsonify, request, render_template
+from flask_session import Session
 import os
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "updownriver-secret-2024")
+
+# ── Server-side session (avoids 4KB cookie limit) ─────────────────
+app.config["SESSION_TYPE"]      = "filesystem"
+app.config["SESSION_FILE_DIR"]  = "/tmp/flask_sessions"
+app.config["SESSION_PERMANENT"] = False
+app.config["SESSION_USE_SIGNER"]= True
+os.makedirs("/tmp/flask_sessions", exist_ok=True)
+Session(app)
 
 # ─── Constants ────────────────────────────────────────────────────────────────
 
