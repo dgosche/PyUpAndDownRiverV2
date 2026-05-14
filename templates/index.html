@@ -89,6 +89,9 @@ body { display: flex; flex-direction: column; min-height: 100dvh; }
   flex-shrink: 0; transition: transform .15s, box-shadow .15s;
   box-shadow: 0 2px 4px #0003;
 }
+.card, .bid-btn, .big-btn, .opt-btn, .player-btn {
+  touch-action: manipulation;
+}
 .card.clickable { cursor: pointer; }
 .card.clickable:active { transform: translateY(-6px); box-shadow: 0 6px 12px #0004; }
 .card.dimmed { background: #c8c8c8; border-color: #999; }
@@ -330,43 +333,91 @@ const DIFF_DESCS = {
 };
 
 // ─── Setup interactions ───────────────────────────────────────────
-document.querySelectorAll('#player-btns .opt-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('#player-btns .opt-btn').forEach(b => b.classList.remove('selected'));
-    btn.classList.add('selected');
-    selectedPlayers = parseInt(btn.dataset.n);
+// ─── Touch-safe tap helper ────────────────────────────────────────
+// Handles both touch and click, prevents 300ms delay and double-fire.
+function onTap(el, handler) {
+  let moved = false;
+  el.addEventListener('touchstart', () => { moved = false; }, {passive: true});
+  el.addEventListener('touchmove',  () => { moved = true;  }, {passive: true});
+  el.addEventListener('touchend', e => {
+    if (moved) return;
+    e.preventDefault();   // blocks the ghost click that follows
+    handler(e);
   });
+  el.addEventListener('click', e => {
+    // Only fires on real mouse clicks (touchend already handled above)
+    if (e.sourceCapabilities && e.sourceCapabilities.firesTouchEvents) return;
+    handler(e);
+  });
+}
+
+// ─── In-flight guard — prevents double submissions ────────────────
+let _busy = false;
+async function safeFetch(url, opts) {
+  if (_busy) return null;
+  _busy = true;
+  try {
+    const res = await fetch(url, opts);
+    return await res.json();
+  } finally {
+    _busy = false;
+  }
+}
+
+// ─── Event delegation on stable parents ──────────────────────────
+// Hand cards
+onTap(document.getElementById('hand-area'), e => {
+  const card = e.target.closest('.card.clickable');
+  if (!card) return;
+  playCard({rank: card.dataset.rank, suit: card.dataset.suit});
 });
 
-document.querySelectorAll('#diff-btns .opt-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('#diff-btns .opt-btn').forEach(b => b.classList.remove('selected'));
-    btn.classList.add('selected');
-    selectedDiff = btn.dataset.d;
-    document.getElementById('diff-desc').innerHTML = DIFF_DESCS[selectedDiff];
-  });
+// Bid buttons
+onTap(document.getElementById('bid-buttons'), e => {
+  const btn = e.target.closest('.bid-btn:not(.forbidden)');
+  if (!btn) return;
+  submitBid(parseInt(btn.dataset.bid));
 });
 
-document.getElementById('start-btn').addEventListener('click', async () => {
-  const res = await fetch('/api/start', {
+// Next round button
+onTap(document.getElementById('next-round-btn'), async () => {
+  const data = await safeFetch('/api/next_round', {method:'POST'});
+  if (data) { state = data; render(state); }
+});
+
+// Play again button
+onTap(document.getElementById('play-again-btn'), () => {
+  document.getElementById('gameover-panel').style.display = 'none';
+  document.getElementById('setup-panel').style.display    = 'flex';
+});
+
+// Start button
+onTap(document.getElementById('start-btn'), async () => {
+  const data = await safeFetch('/api/start', {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
     body: JSON.stringify({num_players: selectedPlayers, difficulty: selectedDiff})
   });
-  state = await res.json();
-  showGame();
-  render(state);
+  if (data) { state = data; showGame(); render(state); }
 });
 
-document.getElementById('next-round-btn').addEventListener('click', async () => {
-  const res = await fetch('/api/next_round', {method:'POST'});
-  state = await res.json();
-  render(state);
+// Player count buttons
+document.getElementById('player-btns').addEventListener('click', e => {
+  const btn = e.target.closest('.opt-btn');
+  if (!btn) return;
+  document.querySelectorAll('#player-btns .opt-btn').forEach(b => b.classList.remove('selected'));
+  btn.classList.add('selected');
+  selectedPlayers = parseInt(btn.dataset.n);
 });
 
-document.getElementById('play-again-btn').addEventListener('click', () => {
-  document.getElementById('gameover-panel').style.display = 'none';
-  document.getElementById('setup-panel').style.display    = 'flex';
+// Difficulty buttons
+document.getElementById('diff-btns').addEventListener('click', e => {
+  const btn = e.target.closest('.opt-btn');
+  if (!btn) return;
+  document.querySelectorAll('#diff-btns .opt-btn').forEach(b => b.classList.remove('selected'));
+  btn.classList.add('selected');
+  selectedDiff = btn.dataset.d;
+  document.getElementById('diff-desc').innerHTML = DIFF_DESCS[selectedDiff];
 });
 
 // ─── Show game ────────────────────────────────────────────────────
@@ -456,7 +507,7 @@ function render(s) {
   const dlr  = s.dealer_idx===0 ? ' ◄ Dealer' : '';
   document.getElementById('your-info').textContent = `Bid:${bid0}  Won:${s.tricks_won[0]}${dlr}`;
 
-  // Your hand
+  // Your hand — uses delegation on #hand-area, just render HTML
   const handArea = document.getElementById('hand-area');
   handArea.innerHTML = '';
   const isYourTurn = s.phase==='playing' && s.current_player===0;
@@ -468,14 +519,10 @@ function render(s) {
   s.hand.forEach(card => {
     const clickable = isYourTurn && (!validSuits || validSuits.has(card.suit));
     const dimmed    = isYourTurn && !!validSuits && !validSuits.has(card.suit);
-    const el = document.createElement('div');
-    el.innerHTML = cardHTML(card, {clickable, dimmed});
-    const cEl = el.firstChild;
-    if (clickable) cEl.addEventListener('click', ()=>playCard(card));
-    handArea.appendChild(cEl);
+    handArea.insertAdjacentHTML('beforeend', cardHTML(card, {clickable, dimmed}));
   });
 
-  // Bid panel
+  // Bid panel — uses delegation on #bid-buttons, just render HTML
   const bidPanel = document.getElementById('bid-panel');
   const isMyBid  = s.phase==='bidding' && s.waiting_for==='human';
   bidPanel.style.display = isMyBid ? 'block' : 'none';
@@ -508,11 +555,10 @@ function renderBidPanel(s) {
   btns.innerHTML = '';
   for (let b=0; b<=s.num_cards; b++) {
     const isForbidden = (b===s.forbidden_bid);
-    const btn = document.createElement('button');
-    btn.className   = 'bid-btn' + (isForbidden?' forbidden':'');
-    btn.textContent = b;
-    if (!isForbidden) btn.addEventListener('click', ()=>submitBid(b));
-    btns.appendChild(btn);
+    // Store bid value in data-bid for delegation to read
+    btns.insertAdjacentHTML('beforeend',
+      `<button class="bid-btn${isForbidden?' forbidden':''}" data-bid="${b}"
+        ${isForbidden?'disabled':''}>${b}</button>`);
   }
 }
 
@@ -565,17 +611,23 @@ function renderGameOver(s) {
 // ─── Actions ──────────────────────────────────────────────────────
 async function submitBid(bid) {
   document.querySelectorAll('.bid-btn').forEach(b=>b.disabled=true);
-  const res  = await fetch('/api/bid',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({bid})});
-  const data = await res.json();
-  if (data.error){alert(data.error);return;}
-  state=data; render(state);
+  const data = await safeFetch('/api/bid', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({bid})
+  });
+  if (data && !data.error) { state=data; render(state); }
+  else if (data && data.error) alert(data.error);
 }
 
 async function playCard(card) {
-  const res  = await fetch('/api/play',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({rank:card.rank,suit:card.suit})});
-  const data = await res.json();
-  if (data.error){alert(data.error);return;}
-  state=data; render(state);
+  const data = await safeFetch('/api/play', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({rank: card.rank, suit: card.suit})
+  });
+  if (data && !data.error) { state=data; render(state); }
+  else if (data && data.error) alert(data.error);
 }
 </script>
 </body>
